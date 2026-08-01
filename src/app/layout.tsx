@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Design Vocab",
+  title: "Distill",
   description:
     "Translate an image into design vocabulary and a paste-ready markdown spec.",
 };

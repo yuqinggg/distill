@@ -1,4 +1,4 @@
-# Design Vocab
+# Distill
 
 Upload an image, get back design vocabulary: a measured color palette,
 inferred typography/spacing/grid, descriptive style vocabulary, and an
