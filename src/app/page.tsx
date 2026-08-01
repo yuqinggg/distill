@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Image from "next/image";
+import MorphBlob from "@/components/MorphBlob";
 import type { ExtractionResult } from "@/lib/types";
 
 type Status = "idle" | "confirm" | "loading" | "error";
@@ -8,6 +10,15 @@ type Theme = "light" | "dark";
 
 const enter =
   "transition-all duration-500 ease-out starting:opacity-0 starting:translate-y-3";
+
+const confirmCaptions = [
+  "Looks good!",
+  "Nice pick.",
+  "That's interesting.",
+  "Good eye.",
+  "Love this one.",
+  "Solid choice.",
+];
 
 export default function Home() {
   const [pendingFile, setPendingFile] = useState<File | null>(null);
@@ -20,6 +31,7 @@ export default function Home() {
   const [theme, setTheme] = useState<Theme>("light");
   const [sheetOpen, setSheetOpen] = useState(false);
   const [heroMounted, setHeroMounted] = useState(false);
+  const [caption, setCaption] = useState("");
 
   useEffect(() => {
     setTheme(
@@ -46,6 +58,9 @@ export default function Home() {
     setPendingFile(file);
     setPreviewUrl(URL.createObjectURL(file));
     setStatus("confirm");
+    setCaption(
+      confirmCaptions[Math.floor(Math.random() * confirmCaptions.length)]
+    );
     setError(null);
     setResult(null);
     setMarkdown("");
@@ -129,13 +144,16 @@ export default function Home() {
               </svg>
             </button>
           ) : (
-            <div className="flex items-center gap-1.5 text-logo">
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M5 7 Q12 10 19 7 Q12 4.3 5 7 Z" />
-                <path d="M7.3 13 Q12 15.3 16.7 13 Q12 11 7.3 13 Z" />
-                <circle cx="12" cy="18.3" r="1.7" />
-              </svg>
-              <span className="text-base font-medium tracking-tight">
+            <div className="flex items-center gap-1.5">
+              <Image
+                src="/logo-icon.png"
+                alt=""
+                width={264}
+                height={245}
+                className="h-6 w-auto"
+                priority
+              />
+              <span className="text-base font-medium tracking-tight text-logo">
                 distill
               </span>
             </div>
@@ -236,7 +254,7 @@ export default function Home() {
           <div
             onDrop={onDrop}
             onDragOver={(e) => e.preventDefault()}
-            className={`flex flex-1 flex-col items-center justify-center overflow-hidden pb-28 ${enter}`}
+            className={`flex flex-1 flex-col items-center justify-center gap-3 overflow-hidden pb-28 ${enter}`}
           >
             {previewUrl && (
               <div className="relative max-h-full max-w-full">
@@ -247,6 +265,9 @@ export default function Home() {
                   className="block max-h-full min-h-48 min-w-48 max-w-full rounded-3xl object-contain shadow-sm"
                 />
               </div>
+            )}
+            {caption && (
+              <p className="text-sm font-medium text-muted">{caption}</p>
             )}
           </div>
         ) : (
@@ -296,29 +317,10 @@ export default function Home() {
         )}
 
         {status === "loading" && (
-          <div className={`flex items-center gap-2.5 text-sm text-muted ${enter}`}>
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 20 20"
-              fill="none"
-              className="animate-spin text-accent"
-            >
-              <circle
-                cx="10"
-                cy="10"
-                r="7.5"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeOpacity="0.2"
-              />
-              <path
-                d="M17.5 10a7.5 7.5 0 0 0-7.5-7.5"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-              />
-            </svg>
+          <div
+            className={`flex flex-col items-center gap-3 self-center text-sm text-muted ${enter}`}
+          >
+            <MorphBlob size={56} />
             Analyzing colors, typography, and layout…
           </div>
         )}
