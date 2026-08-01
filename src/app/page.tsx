@@ -3,13 +3,14 @@
 import { useEffect, useState } from "react";
 import type { ExtractionResult } from "@/lib/types";
 
-type Status = "idle" | "loading" | "error";
+type Status = "idle" | "confirm" | "loading" | "error";
 type Theme = "light" | "dark";
 
 const enter =
   "transition-all duration-500 ease-out starting:opacity-0 starting:translate-y-3";
 
 export default function Home() {
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [status, setStatus] = useState<Status>("idle");
   const [error, setError] = useState<string | null>(null);
@@ -17,11 +18,21 @@ export default function Home() {
   const [markdown, setMarkdown] = useState<string>("");
   const [copied, setCopied] = useState(false);
   const [theme, setTheme] = useState<Theme>("light");
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const [heroMounted, setHeroMounted] = useState(false);
 
   useEffect(() => {
     setTheme(
       document.documentElement.classList.contains("dark") ? "dark" : "light"
     );
+    let id2 = 0;
+    const id1 = requestAnimationFrame(() => {
+      id2 = requestAnimationFrame(() => setHeroMounted(true));
+    });
+    return () => {
+      cancelAnimationFrame(id1);
+      cancelAnimationFrame(id2);
+    };
   }, []);
 
   function toggleTheme() {
@@ -31,16 +42,23 @@ export default function Home() {
     setTheme(next);
   }
 
-  async function handleFile(file: File) {
-    setStatus("loading");
+  function selectFile(file: File) {
+    setPendingFile(file);
+    setPreviewUrl(URL.createObjectURL(file));
+    setStatus("confirm");
     setError(null);
     setResult(null);
     setMarkdown("");
     setCopied(false);
-    setPreviewUrl(URL.createObjectURL(file));
+  }
+
+  async function analyzeFile() {
+    if (!pendingFile) return;
+    setStatus("loading");
+    setError(null);
 
     const formData = new FormData();
-    formData.append("image", file);
+    formData.append("image", pendingFile);
 
     try {
       const res = await fetch("/api/analyze", {
@@ -62,15 +80,25 @@ export default function Home() {
     }
   }
 
+  function resetToHero() {
+    setPendingFile(null);
+    setPreviewUrl(null);
+    setStatus("idle");
+    setError(null);
+    setResult(null);
+    setMarkdown("");
+  }
+
   function onInputChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
-    if (file) handleFile(file);
+    if (file) selectFile(file);
+    setSheetOpen(false);
   }
 
   function onDrop(e: React.DragEvent<HTMLDivElement>) {
     e.preventDefault();
     const file = e.dataTransfer.files?.[0];
-    if (file) handleFile(file);
+    if (file) selectFile(file);
   }
 
   async function copyMarkdown() {
@@ -83,23 +111,43 @@ export default function Home() {
     <div className="flex flex-1 flex-col items-center bg-background font-sans">
       <main className="flex w-full max-w-2xl flex-1 flex-col gap-8 px-6 py-16">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-1.5 text-logo">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M5 7 Q12 10 19 7 Q12 4.3 5 7 Z" />
-              <path d="M7.3 13 Q12 15.3 16.7 13 Q12 11 7.3 13 Z" />
-              <circle cx="12" cy="18.3" r="1.7" />
-            </svg>
-            <span className="text-base font-medium tracking-tight">
-              distill
-            </span>
-          </div>
+          {status === "confirm" ? (
+            <button
+              onClick={resetToHero}
+              aria-label="Back"
+              title="Back"
+              className="flex h-9 w-9 items-center justify-center rounded-full border border-border bg-card text-foreground transition-colors hover:bg-background"
+            >
+              <svg width="16" height="16" viewBox="0 0 20 20" fill="none">
+                <path
+                  d="M12.5 4.5 6 11l6.5 6.5"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </button>
+          ) : (
+            <div className="flex items-center gap-1.5 text-logo">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M5 7 Q12 10 19 7 Q12 4.3 5 7 Z" />
+                <path d="M7.3 13 Q12 15.3 16.7 13 Q12 11 7.3 13 Z" />
+                <circle cx="12" cy="18.3" r="1.7" />
+              </svg>
+              <span className="text-base font-medium tracking-tight">
+                distill
+              </span>
+            </div>
+          )}
           <button
             onClick={toggleTheme}
-            aria-label="Toggle light mode"
-            className="flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-background"
+            aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+            title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+            className="flex h-9 w-9 items-center justify-center rounded-full border border-border bg-card text-foreground transition-colors hover:bg-background"
           >
             {theme === "dark" ? (
-              <svg width="14" height="14" viewBox="0 0 20 20" fill="none">
+              <svg width="16" height="16" viewBox="0 0 20 20" fill="none">
                 <path
                   d="M10 3v1.5M10 15.5V17M17 10h-1.5M4.5 10H3M14.6 5.4l-1.1 1.1M6.5 13.5l-1.1 1.1M14.6 14.6l-1.1-1.1M6.5 6.5 5.4 5.4"
                   stroke="currentColor"
@@ -115,7 +163,7 @@ export default function Home() {
                 />
               </svg>
             ) : (
-              <svg width="14" height="14" viewBox="0 0 20 20" fill="none">
+              <svg width="16" height="16" viewBox="0 0 20 20" fill="none">
                 <path
                   d="M17 11.3A7 7 0 0 1 8.7 3a7 7 0 1 0 8.3 8.3Z"
                   stroke="currentColor"
@@ -124,7 +172,6 @@ export default function Home() {
                 />
               </svg>
             )}
-            {theme === "dark" ? "Light mode" : "Dark mode"}
           </button>
         </div>
 
@@ -132,135 +179,75 @@ export default function Home() {
           <div
             onDrop={onDrop}
             onDragOver={(e) => e.preventDefault()}
-            className={`flex flex-1 flex-col justify-center gap-10 ${enter}`}
+            className="flex flex-1 flex-col items-center justify-center gap-8 text-center"
           >
-            <div className="relative flex flex-col gap-3">
-              <div className="pointer-events-none absolute -top-24 right-0 h-64 w-64 rounded-full bg-accent/25 blur-3xl" />
-              <h1 className="relative text-4xl font-semibold tracking-tight text-foreground">
+            <div className="relative flex flex-col items-center gap-3">
+              <div className="pointer-events-none absolute left-1/2 top-1/2 h-64 w-64 -translate-x-1/2 -translate-y-1/2 rounded-full bg-accent/25 blur-3xl" />
+              <h1
+                className={`relative text-4xl font-semibold tracking-tight text-foreground transition-all duration-1000 ease-out ${
+                  heroMounted
+                    ? "translate-y-0 opacity-100"
+                    : "translate-y-4 opacity-0"
+                }`}
+              >
                 What are you inspired by?
               </h1>
-              <p className="relative text-muted">
-                Upload an editorial layout or a UI screenshot. Get back
-                structured design tokens and style vocabulary as a
-                paste-ready markdown file.
+              <p
+                className={`relative max-w-sm text-muted transition-all delay-300 duration-1000 ease-out ${
+                  heroMounted
+                    ? "translate-y-0 opacity-100"
+                    : "translate-y-4 opacity-0"
+                }`}
+              >
+                Share an image and we&apos;ll translate it into vocabulary
+                for humans and for machines.
               </p>
             </div>
 
-            <div
-              className={`divide-y divide-border overflow-hidden rounded-3xl border border-border bg-card shadow-sm delay-100 ${enter}`}
+            <button
+              onClick={() => setSheetOpen((open) => !open)}
+              aria-label={sheetOpen ? "Close" : "Add an image"}
+              title={sheetOpen ? "Close" : "Add an image"}
+              className={`relative z-50 flex h-14 w-14 items-center justify-center rounded-full bg-foreground text-background shadow-sm transition-all delay-500 duration-700 ease-out hover:scale-105 active:scale-90 ${
+                heroMounted
+                  ? "translate-y-0 scale-100 opacity-100"
+                  : "translate-y-4 scale-90 opacity-0"
+              }`}
             >
-              <label className="flex cursor-pointer items-center gap-4 p-5 transition-[background-color,transform] duration-150 hover:bg-background/60 active:scale-[0.98]">
-                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-accent/10 text-accent">
-                  <svg
-                    width="20"
-                    height="20"
-                    viewBox="0 0 20 20"
-                    fill="none"
-                  >
-                    <path
-                      d="M2.5 6.5A1.5 1.5 0 0 1 4 5h1.5l.8-1.2a1 1 0 0 1 .84-.45h5.72a1 1 0 0 1 .84.45L14.5 5H16a1.5 1.5 0 0 1 1.5 1.5v7A1.5 1.5 0 0 1 16 15H4a1.5 1.5 0 0 1-1.5-1.5v-7Z"
-                      stroke="currentColor"
-                      strokeWidth="1.5"
-                      strokeLinejoin="round"
-                    />
-                    <circle
-                      cx="10"
-                      cy="10"
-                      r="3"
-                      stroke="currentColor"
-                      strokeWidth="1.5"
-                    />
-                  </svg>
-                </span>
-                <span className="flex-1">
-                  <span className="block font-medium text-foreground">
-                    Take a photo
-                  </span>
-                  <span className="block text-sm text-muted">
-                    Point your camera at a layout or design
-                  </span>
-                </span>
-                <svg
-                  width="18"
-                  height="18"
-                  viewBox="0 0 18 18"
-                  fill="none"
-                  className="shrink-0 text-muted"
-                >
-                  <path
-                    d="M6.5 3.5 12 9l-5.5 5.5"
-                    stroke="currentColor"
-                    strokeWidth="1.5"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                </svg>
-                <input
-                  type="file"
-                  accept="image/png,image/jpeg,image/gif,image/webp"
-                  capture="environment"
-                  onChange={onInputChange}
-                  className="hidden"
+              <svg
+                width="22"
+                height="22"
+                viewBox="0 0 20 20"
+                fill="none"
+                className={`transition-transform duration-300 ease-out ${
+                  sheetOpen ? "rotate-45" : "rotate-0"
+                }`}
+              >
+                <path
+                  d="M10 4v12M4 10h12"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
                 />
-              </label>
-
-              <label className="flex cursor-pointer items-center gap-4 p-5 transition-[background-color,transform] duration-150 hover:bg-background/60 active:scale-[0.98]">
-                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-accent/10 text-accent">
-                  <svg
-                    width="20"
-                    height="20"
-                    viewBox="0 0 20 20"
-                    fill="none"
-                  >
-                    <rect
-                      x="2.5"
-                      y="3.5"
-                      width="15"
-                      height="13"
-                      rx="1.5"
-                      stroke="currentColor"
-                      strokeWidth="1.5"
-                    />
-                    <circle cx="7" cy="8" r="1.25" fill="currentColor" />
-                    <path
-                      d="M3 14.5 7.5 10l2.5 2.5 2-2 4.5 4.5"
-                      stroke="currentColor"
-                      strokeWidth="1.5"
-                      strokeLinejoin="round"
-                    />
-                  </svg>
-                </span>
-                <span className="flex-1">
-                  <span className="block font-medium text-foreground">
-                    Upload image
-                  </span>
-                  <span className="block text-sm text-muted">
-                    Choose a screenshot or file from your device
-                  </span>
-                </span>
-                <svg
-                  width="18"
-                  height="18"
-                  viewBox="0 0 18 18"
-                  fill="none"
-                  className="shrink-0 text-muted"
-                >
-                  <path
-                    d="M6.5 3.5 12 9l-5.5 5.5"
-                    stroke="currentColor"
-                    strokeWidth="1.5"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                </svg>
-                <input
-                  type="file"
-                  accept="image/png,image/jpeg,image/gif,image/webp"
-                  onChange={onInputChange}
-                  className="hidden"
+              </svg>
+            </button>
+          </div>
+        ) : status === "confirm" ? (
+          <div
+            onDrop={onDrop}
+            onDragOver={(e) => e.preventDefault()}
+            className={`flex flex-1 flex-col items-center justify-center overflow-hidden pb-28 ${enter}`}
+          >
+            {previewUrl && (
+              <div className="relative max-h-full max-w-full">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={previewUrl}
+                  alt="Uploaded preview"
+                  className="block max-h-full min-h-48 min-w-48 max-w-full rounded-3xl object-contain shadow-sm"
                 />
-              </label>
-            </div>
+              </div>
+            )}
           </div>
         ) : (
           <div
@@ -273,6 +260,21 @@ export default function Home() {
                 <span className="absolute left-3 top-3 rounded-full bg-background/80 px-3 py-1 text-[11px] font-medium uppercase tracking-wide text-muted backdrop-blur">
                   Uploaded image
                 </span>
+                <button
+                  onClick={resetToHero}
+                  aria-label="Back"
+                  title="Back"
+                  className="absolute right-3 top-3 flex h-7 w-7 items-center justify-center rounded-full bg-background/80 text-foreground backdrop-blur transition-colors hover:bg-background"
+                >
+                  <svg width="14" height="14" viewBox="0 0 20 20" fill="none">
+                    <path
+                      d="M5 5l10 10M15 5 5 15"
+                      stroke="currentColor"
+                      strokeWidth="1.8"
+                      strokeLinecap="round"
+                    />
+                  </svg>
+                </button>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
                   src={previewUrl}
@@ -281,7 +283,7 @@ export default function Home() {
                 />
               </div>
             )}
-            <label className="cursor-pointer rounded-full bg-accent px-5 py-2.5 text-sm font-medium text-accent-foreground transition-colors hover:opacity-90">
+            <label className="cursor-pointer rounded-full border border-border bg-card px-5 py-2.5 text-sm font-medium text-foreground transition-colors hover:bg-background">
               Choose a different image
               <input
                 type="file"
@@ -389,6 +391,178 @@ export default function Home() {
           </section>
         )}
       </main>
+
+      {status === "confirm" && (
+        <div className="fixed inset-x-0 bottom-0 z-50 mx-auto flex w-full max-w-2xl items-center justify-center gap-6 bg-background/95 px-6 pb-8 pt-4 backdrop-blur">
+          <label
+            aria-label="Try a different image"
+            title="Try a different image"
+            className="flex h-14 w-14 cursor-pointer items-center justify-center rounded-full border border-border bg-card text-foreground shadow-sm transition-colors hover:bg-background active:scale-[0.96]"
+          >
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+              <path
+                d="M16 6.5A6.5 6.5 0 1 0 17 11"
+                stroke="currentColor"
+                strokeWidth="1.7"
+                strokeLinecap="round"
+                fill="none"
+              />
+              <path
+                d="M16 2.5v4.3h-4.3"
+                stroke="currentColor"
+                strokeWidth="1.7"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                fill="none"
+              />
+            </svg>
+            <input
+              type="file"
+              accept="image/png,image/jpeg,image/gif,image/webp"
+              onChange={onInputChange}
+              className="hidden"
+            />
+          </label>
+          <button
+            onClick={analyzeFile}
+            aria-label="Looks good, analyze it"
+            title="Looks good, analyze it"
+            className="flex h-14 w-14 items-center justify-center rounded-full bg-accent text-accent-foreground shadow-sm transition-colors hover:opacity-90 active:scale-[0.96]"
+          >
+            <svg width="22" height="22" viewBox="0 0 20 20" fill="none">
+              <path
+                d="M4 10.5 8 15l8-10.5"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </button>
+        </div>
+      )}
+
+      {!previewUrl && (
+        <>
+          <div
+            onClick={() => setSheetOpen(false)}
+            aria-hidden="true"
+            className={`fixed inset-0 z-40 bg-black/30 transition-opacity duration-200 ease-out ${
+              sheetOpen ? "opacity-100" : "pointer-events-none opacity-0"
+            }`}
+          />
+          <div
+            className={`fixed inset-x-0 bottom-0 z-50 mx-auto w-full max-w-2xl rounded-t-3xl border border-border bg-card p-3 pb-6 shadow-lg transition-transform duration-[350ms] ease-[cubic-bezier(0.32,0.72,0,1)] ${
+              sheetOpen ? "translate-y-0" : "translate-y-full"
+            }`}
+          >
+            <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-border" />
+            <div className="divide-y divide-border overflow-hidden rounded-2xl">
+              <label className="flex cursor-pointer items-center gap-4 p-5 transition-[background-color,transform] duration-150 hover:bg-background/60 active:scale-[0.98]">
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-accent/10 text-accent">
+                  <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                    <path
+                      d="M2.5 6.5A1.5 1.5 0 0 1 4 5h1.5l.8-1.2a1 1 0 0 1 .84-.45h5.72a1 1 0 0 1 .84.45L14.5 5H16a1.5 1.5 0 0 1 1.5 1.5v7A1.5 1.5 0 0 1 16 15H4a1.5 1.5 0 0 1-1.5-1.5v-7Z"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                      strokeLinejoin="round"
+                    />
+                    <circle
+                      cx="10"
+                      cy="10"
+                      r="3"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                    />
+                  </svg>
+                </span>
+                <span className="flex-1">
+                  <span className="block font-medium text-foreground">
+                    Take a photo
+                  </span>
+                  <span className="block text-sm text-muted">
+                    Snap something that caught your eye
+                  </span>
+                </span>
+                <svg
+                  width="18"
+                  height="18"
+                  viewBox="0 0 18 18"
+                  fill="none"
+                  className="shrink-0 text-muted"
+                >
+                  <path
+                    d="M6.5 3.5 12 9l-5.5 5.5"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+                <input
+                  type="file"
+                  accept="image/png,image/jpeg,image/gif,image/webp"
+                  capture="environment"
+                  onChange={onInputChange}
+                  className="hidden"
+                />
+              </label>
+
+              <label className="flex cursor-pointer items-center gap-4 p-5 transition-[background-color,transform] duration-150 hover:bg-background/60 active:scale-[0.98]">
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-accent/10 text-accent">
+                  <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                    <rect
+                      x="2.5"
+                      y="3.5"
+                      width="15"
+                      height="13"
+                      rx="1.5"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                    />
+                    <circle cx="7" cy="8" r="1.25" fill="currentColor" />
+                    <path
+                      d="M3 14.5 7.5 10l2.5 2.5 2-2 4.5 4.5"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                </span>
+                <span className="flex-1">
+                  <span className="block font-medium text-foreground">
+                    Upload image
+                  </span>
+                  <span className="block text-sm text-muted">
+                    Pull something from your camera roll
+                  </span>
+                </span>
+                <svg
+                  width="18"
+                  height="18"
+                  viewBox="0 0 18 18"
+                  fill="none"
+                  className="shrink-0 text-muted"
+                >
+                  <path
+                    d="M6.5 3.5 12 9l-5.5 5.5"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+                <input
+                  type="file"
+                  accept="image/png,image/jpeg,image/gif,image/webp"
+                  onChange={onInputChange}
+                  className="hidden"
+                />
+              </label>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }
