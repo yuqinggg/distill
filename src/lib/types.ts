@@ -3,6 +3,7 @@ export type Domain = "editorial" | "ui";
 export interface ColorRole {
   hex: string;
   role: string; // e.g. "primary", "accent", "neutral-light", "neutral-dark"
+  percentage: number; // 0-1, share of image pixels this swatch represents
 }
 
 /** Measured directly from image pixels (deterministic, no model inference). */

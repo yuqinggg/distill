@@ -1,15 +1,65 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import Image from "next/image";
 import MorphBlob from "@/components/MorphBlob";
+import PaletteTreemap from "@/components/PaletteTreemap";
+import { toMarkdown } from "@/lib/markdown-export";
 import type { ExtractionResult } from "@/lib/types";
 
 type Status = "idle" | "confirm" | "loading" | "error";
 type Theme = "light" | "dark";
+interface Rect {
+  top: number;
+  left: number;
+  width: number;
+  height: number;
+}
 
 const enter =
   "transition-all duration-500 ease-out starting:opacity-0 starting:translate-y-3";
+
+const EXPANDED_GAP = 16;
+
+function CornerArrowIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      className={className}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M7 17L17 7M17 7H8M17 7V16" />
+    </svg>
+  );
+}
+
+function ThemeIcon({ theme }: { theme: Theme }) {
+  return theme === "dark" ? (
+    <svg width="16" height="16" viewBox="0 0 20 20" fill="none">
+      <path
+        d="M10 3v1.5M10 15.5V17M17 10h-1.5M4.5 10H3M14.6 5.4l-1.1 1.1M6.5 13.5l-1.1 1.1M14.6 14.6l-1.1-1.1M6.5 6.5 5.4 5.4"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+      />
+      <circle cx="10" cy="10" r="3.5" stroke="currentColor" strokeWidth="1.4" />
+    </svg>
+  ) : (
+    <svg width="16" height="16" viewBox="0 0 20 20" fill="none">
+      <path
+        d="M17 11.3A7 7 0 0 1 8.7 3a7 7 0 1 0 8.3 8.3Z"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
 
 const confirmCaptions = [
   "Looks good!",
@@ -28,10 +78,101 @@ export default function Home() {
   const [result, setResult] = useState<ExtractionResult | null>(null);
   const [markdown, setMarkdown] = useState<string>("");
   const [copied, setCopied] = useState(false);
+  const [copiedVocab, setCopiedVocab] = useState(false);
   const [theme, setTheme] = useState<Theme>("light");
   const [sheetOpen, setSheetOpen] = useState(false);
   const [heroMounted, setHeroMounted] = useState(false);
   const [caption, setCaption] = useState("");
+  const [previewLoaded, setPreviewLoaded] = useState(false);
+  const [typedCaption, setTypedCaption] = useState("");
+  const [cardsVisible, setCardsVisible] = useState(false);
+  const [isFlying, setIsFlying] = useState(false);
+  const [flightPhase, setFlightPhase] = useState<"start" | "end">("start");
+  const [flyStart, setFlyStart] = useState<Rect | null>(null);
+  const [flyEnd, setFlyEnd] = useState<Rect | null>(null);
+  const [cardOverlaps, setCardOverlaps] = useState<number[]>([]);
+  const [expandedCard, setExpandedCard] = useState<number | null>(null);
+  const captionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const previewImgRef = useRef<HTMLImageElement | null>(null);
+  const settledContainerRef = useRef<HTMLDivElement | null>(null);
+  const cardRefs = useRef<Array<HTMLDivElement | null>>([]);
+
+  useEffect(() => {
+    if (!result || isFlying) {
+      const id = setTimeout(() => setCardsVisible(false), 0);
+      return () => clearTimeout(id);
+    }
+    const id = requestAnimationFrame(() => setCardsVisible(true));
+    return () => cancelAnimationFrame(id);
+  }, [result, isFlying]);
+
+  useLayoutEffect(() => {
+    if (!cardsVisible) return;
+    const PEEK = 120;
+    function recompute() {
+      const margins = cardRefs.current.slice(0, -1).map((el) => {
+        const h = el?.getBoundingClientRect().height ?? 0;
+        return -Math.max(h - PEEK, 0);
+      });
+      setCardOverlaps(margins);
+    }
+    recompute();
+    const observer = new ResizeObserver(recompute);
+    cardRefs.current.forEach((el) => el && observer.observe(el));
+    return () => observer.disconnect();
+  }, [cardsVisible]);
+
+  useEffect(() => {
+    if (expandedCard === null) return;
+    function handlePointerDown(e: PointerEvent) {
+      const expandedEl = cardRefs.current[expandedCard as number];
+      if (expandedEl && !expandedEl.contains(e.target as Node)) {
+        setExpandedCard(null);
+      }
+    }
+    document.addEventListener("pointerdown", handlePointerDown);
+    return () => document.removeEventListener("pointerdown", handlePointerDown);
+  }, [expandedCard]);
+
+  useLayoutEffect(() => {
+    if (!isFlying) return;
+    const endEl = settledContainerRef.current;
+    if (endEl) {
+      const r = endEl.getBoundingClientRect();
+      setFlyEnd({ top: r.top, left: r.left, width: r.width, height: r.height });
+    }
+    setFlightPhase("start");
+    let raf2 = 0;
+    const raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(() => setFlightPhase("end"));
+    });
+    const doneTimer = setTimeout(() => setIsFlying(false), 780);
+    return () => {
+      cancelAnimationFrame(raf1);
+      cancelAnimationFrame(raf2);
+      clearTimeout(doneTimer);
+    };
+  }, [isFlying]);
+
+  useEffect(() => {
+    if (!previewLoaded || !caption) {
+      const clearId = setTimeout(() => setTypedCaption(""), 0);
+      return () => clearTimeout(clearId);
+    }
+    let i = 0;
+    const id = setInterval(() => {
+      i += 1;
+      setTypedCaption(caption.slice(0, i));
+      if (i >= caption.length) clearInterval(id);
+    }, 35);
+    return () => clearInterval(id);
+  }, [previewLoaded, caption]);
+
+  useEffect(() => {
+    return () => {
+      if (captionTimeoutRef.current) clearTimeout(captionTimeoutRef.current);
+    };
+  }, []);
 
   useEffect(() => {
     setTheme(
@@ -55,8 +196,10 @@ export default function Home() {
   }
 
   function selectFile(file: File) {
+    if (captionTimeoutRef.current) clearTimeout(captionTimeoutRef.current);
     setPendingFile(file);
     setPreviewUrl(URL.createObjectURL(file));
+    setPreviewLoaded(false);
     setStatus("confirm");
     setCaption(
       confirmCaptions[Math.floor(Math.random() * confirmCaptions.length)]
@@ -86,6 +229,16 @@ export default function Home() {
         throw new Error(data.error ?? "Extraction failed.");
       }
 
+      const rect = previewImgRef.current?.getBoundingClientRect();
+      if (rect) {
+        setFlyStart({
+          top: rect.top,
+          left: rect.left,
+          width: rect.width,
+          height: rect.height,
+        });
+        setIsFlying(true);
+      }
       setResult(data.result);
       setMarkdown(data.markdown);
       setStatus("idle");
@@ -95,9 +248,33 @@ export default function Home() {
     }
   }
 
+  function removeStyleWord(word: string) {
+    setResult((prev) => {
+      if (!prev) return prev;
+      const next: ExtractionResult = {
+        ...prev,
+        inferred: {
+          ...prev.inferred,
+          styleVocabulary: prev.inferred.styleVocabulary.filter(
+            (w) => w !== word
+          ),
+        },
+      };
+      setMarkdown(toMarkdown(next));
+      return next;
+    });
+  }
+
+  function onPreviewImageLoad() {
+    if (captionTimeoutRef.current) clearTimeout(captionTimeoutRef.current);
+    captionTimeoutRef.current = setTimeout(() => setPreviewLoaded(true), 500);
+  }
+
   function resetToHero() {
+    if (captionTimeoutRef.current) clearTimeout(captionTimeoutRef.current);
     setPendingFile(null);
     setPreviewUrl(null);
+    setPreviewLoaded(false);
     setStatus("idle");
     setError(null);
     setResult(null);
@@ -122,29 +299,84 @@ export default function Home() {
     setTimeout(() => setCopied(false), 1500);
   }
 
+  async function copyVocabulary() {
+    if (!result) return;
+    await navigator.clipboard.writeText(
+      result.inferred.styleVocabulary.join(", ")
+    );
+    setCopiedVocab(true);
+    setTimeout(() => setCopiedVocab(false), 1500);
+  }
+
+  const heroSettled = result !== null;
+  const showCenteredPreview = previewUrl !== null && !heroSettled;
+  const showFloatingChooseButton = previewUrl !== null && status !== "confirm";
+
+  const heroGradient =
+    "linear-gradient(to bottom, transparent 0%, color-mix(in oklab, var(--background) 6%, transparent) 42%, color-mix(in oklab, var(--background) 22%, transparent) 60%, color-mix(in oklab, var(--background) 48%, transparent) 75%, color-mix(in oklab, var(--background) 78%, transparent) 88%, var(--background) 100%)";
+
   return (
     <div className="flex flex-1 flex-col items-center bg-background font-sans">
-      <main className="flex w-full max-w-2xl flex-1 flex-col gap-8 px-6 py-16">
-        <div className="flex items-center justify-between">
-          {status === "confirm" ? (
+      {isFlying && flyStart && previewUrl && (
+        <div
+          className="pointer-events-none fixed z-[60] overflow-hidden transition-[top,left,width,height,border-radius,box-shadow] duration-700 ease-out"
+          style={
+            flightPhase === "end" && flyEnd
+              ? {
+                  top: flyEnd.top,
+                  left: flyEnd.left,
+                  width: flyEnd.width,
+                  height: flyEnd.height,
+                  borderRadius: 0,
+                  boxShadow: "none",
+                }
+              : {
+                  top: flyStart.top,
+                  left: flyStart.left,
+                  width: flyStart.width,
+                  height: flyStart.height,
+                  borderRadius: 24,
+                  boxShadow: "0 10px 30px rgba(0,0,0,0.25)",
+                }
+          }
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={previewUrl} alt="" className="h-full w-full object-contain" />
+        </div>
+      )}
+      {heroSettled && previewUrl && (
+        <div className="relative w-full">
+          <div
+            ref={settledContainerRef}
+            className="relative h-[200px] w-full overflow-hidden"
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={previewUrl}
+              alt="Uploaded preview"
+              className="h-full w-full object-cover"
+              style={{ opacity: isFlying ? 0 : 1 }}
+            />
+            <div
+              className="pointer-events-none absolute inset-0 transition-opacity duration-300 ease-out"
+              style={{
+                background: heroGradient,
+                opacity: isFlying ? 0 : 1,
+              }}
+            />
+          </div>
+          <div
+            className={`absolute inset-x-0 top-0 flex items-center justify-between px-6 py-6 transition-opacity duration-300 ease-out ${
+              isFlying ? "opacity-0" : "opacity-100"
+            }`}
+          >
             <button
+              type="button"
               onClick={resetToHero}
-              aria-label="Back"
-              title="Back"
-              className="flex h-9 w-9 items-center justify-center rounded-full border border-border bg-card text-foreground transition-colors hover:bg-background"
+              aria-label="Return to home"
+              title="Return to home"
+              className="flex items-center gap-1.5 rounded-full bg-background/80 px-3 py-1.5 backdrop-blur transition-colors hover:bg-background"
             >
-              <svg width="16" height="16" viewBox="0 0 20 20" fill="none">
-                <path
-                  d="M12.5 4.5 6 11l6.5 6.5"
-                  stroke="currentColor"
-                  strokeWidth="1.8"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </svg>
-            </button>
-          ) : (
-            <div className="flex items-center gap-1.5">
               <Image
                 src="/logo-icon.png"
                 alt=""
@@ -156,42 +388,75 @@ export default function Home() {
               <span className="text-base font-medium tracking-tight text-logo">
                 distill
               </span>
+            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={toggleTheme}
+                aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+                title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+                className="flex h-9 w-9 items-center justify-center rounded-full bg-background/80 text-foreground backdrop-blur transition-colors hover:bg-background"
+              >
+                <ThemeIcon theme={theme} />
+              </button>
             </div>
-          )}
-          <button
-            onClick={toggleTheme}
-            aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
-            title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
-            className="flex h-9 w-9 items-center justify-center rounded-full border border-border bg-card text-foreground transition-colors hover:bg-background"
-          >
-            {theme === "dark" ? (
-              <svg width="16" height="16" viewBox="0 0 20 20" fill="none">
-                <path
-                  d="M10 3v1.5M10 15.5V17M17 10h-1.5M4.5 10H3M14.6 5.4l-1.1 1.1M6.5 13.5l-1.1 1.1M14.6 14.6l-1.1-1.1M6.5 6.5 5.4 5.4"
-                  stroke="currentColor"
-                  strokeWidth="1.4"
-                  strokeLinecap="round"
-                />
-                <circle
-                  cx="10"
-                  cy="10"
-                  r="3.5"
-                  stroke="currentColor"
-                  strokeWidth="1.4"
-                />
-              </svg>
-            ) : (
-              <svg width="16" height="16" viewBox="0 0 20 20" fill="none">
-                <path
-                  d="M17 11.3A7 7 0 0 1 8.7 3a7 7 0 1 0 8.3 8.3Z"
-                  stroke="currentColor"
-                  strokeWidth="1.4"
-                  strokeLinejoin="round"
-                />
-              </svg>
-            )}
-          </button>
+          </div>
         </div>
+      )}
+      <main
+        className={`flex w-full flex-1 flex-col gap-8 px-6 py-16 ${
+          heroSettled ? "max-w-none" : "max-w-2xl"
+        } ${showFloatingChooseButton ? "pb-28" : ""}`}
+      >
+        {!heroSettled && (
+          <div className="flex items-center justify-between">
+            {status === "confirm" ? (
+              <button
+                onClick={resetToHero}
+                aria-label="Back"
+                title="Back"
+                className="flex h-9 w-9 items-center justify-center rounded-full border border-border bg-card text-foreground transition-colors hover:bg-background"
+              >
+                <svg width="16" height="16" viewBox="0 0 20 20" fill="none">
+                  <path
+                    d="M12.5 4.5 6 11l6.5 6.5"
+                    stroke="currentColor"
+                    strokeWidth="1.8"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={resetToHero}
+                aria-label="Return to home"
+                title="Return to home"
+                className="flex items-center gap-1.5"
+              >
+                <Image
+                  src="/logo-icon.png"
+                  alt=""
+                  width={264}
+                  height={245}
+                  className="h-6 w-auto"
+                  priority
+                />
+                <span className="text-base font-medium tracking-tight text-logo">
+                  distill
+                </span>
+              </button>
+            )}
+            <button
+              onClick={toggleTheme}
+              aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+              title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+              className="flex h-9 w-9 items-center justify-center rounded-full border border-border bg-card text-foreground transition-colors hover:bg-background"
+            >
+              <ThemeIcon theme={theme} />
+            </button>
+          </div>
+        )}
 
         {!previewUrl && status === "idle" ? (
           <div
@@ -250,80 +515,44 @@ export default function Home() {
               </svg>
             </button>
           </div>
-        ) : status === "confirm" ? (
+        ) : showCenteredPreview ? (
           <div
             onDrop={onDrop}
             onDragOver={(e) => e.preventDefault()}
-            className={`flex flex-1 flex-col items-center justify-center gap-3 overflow-hidden pb-28 ${enter}`}
+            className={`flex flex-1 flex-col items-center justify-center gap-5 overflow-hidden pb-28 ${enter}`}
           >
             {previewUrl && (
-              <div className="relative max-h-full max-w-full">
+              <div className="relative mx-auto h-80 w-[calc(100%-3rem)] max-w-xl overflow-hidden rounded-3xl shadow-lg sm:h-96">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
+                  ref={previewImgRef}
                   src={previewUrl}
                   alt="Uploaded preview"
-                  className="block max-h-full min-h-48 min-w-48 max-w-full rounded-3xl object-contain shadow-sm"
+                  onLoad={onPreviewImageLoad}
+                  className="h-full w-full object-contain"
                 />
               </div>
             )}
-            {caption && (
-              <p className="text-sm font-medium text-muted">{caption}</p>
-            )}
-          </div>
-        ) : (
-          <div
-            onDrop={onDrop}
-            onDragOver={(e) => e.preventDefault()}
-            className={`flex flex-col items-center gap-5 rounded-3xl border border-border bg-card p-10 text-center shadow-sm ${enter}`}
-          >
-            {previewUrl && (
-              <div className="relative w-full overflow-hidden rounded-2xl bg-gradient-to-br from-accent/15 via-card to-card">
-                <span className="absolute left-3 top-3 rounded-full bg-background/80 px-3 py-1 text-[11px] font-medium uppercase tracking-wide text-muted backdrop-blur">
-                  Uploaded image
-                </span>
-                <button
-                  onClick={resetToHero}
-                  aria-label="Back"
-                  title="Back"
-                  className="absolute right-3 top-3 flex h-7 w-7 items-center justify-center rounded-full bg-background/80 text-foreground backdrop-blur transition-colors hover:bg-background"
+            <div className="flex h-24 flex-col items-center justify-center">
+              {status === "confirm" && caption && previewLoaded && (
+                <p className="text-sm font-medium text-muted">
+                  {typedCaption}
+                  {typedCaption.length < caption.length && (
+                    <span className="ml-0.5 inline-block h-3.5 w-[1px] animate-pulse bg-muted align-middle" />
+                  )}
+                </p>
+              )}
+              {status === "loading" && (
+                <div
+                  className={`flex flex-col items-center gap-3 text-sm text-muted ${enter}`}
                 >
-                  <svg width="14" height="14" viewBox="0 0 20 20" fill="none">
-                    <path
-                      d="M5 5l10 10M15 5 5 15"
-                      stroke="currentColor"
-                      strokeWidth="1.8"
-                      strokeLinecap="round"
-                    />
-                  </svg>
-                </button>
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={previewUrl}
-                  alt="Uploaded preview"
-                  className="max-h-72 w-full object-contain"
-                />
-              </div>
-            )}
-            <label className="cursor-pointer rounded-full border border-border bg-card px-5 py-2.5 text-sm font-medium text-foreground transition-colors hover:bg-background">
-              Choose a different image
-              <input
-                type="file"
-                accept="image/png,image/jpeg,image/gif,image/webp"
-                onChange={onInputChange}
-                className="hidden"
-              />
-            </label>
+                  <MorphBlob size={56} />
+                  Analyzing colors, typography, and layout…
+                </div>
+              )}
+            </div>
           </div>
-        )}
-
-        {status === "loading" && (
-          <div
-            className={`flex flex-col items-center gap-3 self-center text-sm text-muted ${enter}`}
-          >
-            <MorphBlob size={56} />
-            Analyzing colors, typography, and layout…
-          </div>
-        )}
+        ) : null}
 
         {error && (
           <p
@@ -333,66 +562,163 @@ export default function Home() {
           </p>
         )}
 
-        {result && (
-          <section className="flex flex-col gap-6">
-            <div className={`rounded-3xl border border-border bg-card p-6 shadow-sm ${enter}`}>
-              <span className="text-[11px] font-medium uppercase tracking-wide text-muted">
-                Palette
-              </span>
-              <div className="mt-4 flex flex-wrap gap-4">
-                {result.deterministic.palette.map((c) => (
-                  <div
-                    key={c.role}
-                    className="flex flex-col items-center gap-1.5"
-                  >
-                    <div
-                      className="h-11 w-11 rounded-full border border-border shadow-sm"
-                      style={{ backgroundColor: c.hex }}
-                    />
-                    <span className="text-xs text-foreground">{c.role}</span>
-                    <span className="text-xs text-muted">{c.hex}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-
+        {result && cardsVisible && (
+          <section className="flex flex-col">
+            <p className={`mb-3 text-center text-sm text-muted ${enter}`}>
+              Tap cards to view details
+            </p>
             <div
-              className={`rounded-3xl border border-border bg-card p-6 shadow-sm delay-100 ${enter}`}
+              ref={(el) => {
+                cardRefs.current[0] = el;
+              }}
+              role="button"
+              tabIndex={0}
+              onClick={() =>
+                setExpandedCard((prev) => (prev === 0 ? null : 0))
+              }
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  setExpandedCard((prev) => (prev === 0 ? null : 0));
+                }
+              }}
+              className={`relative z-10 cursor-pointer rounded-3xl border border-border bg-card p-6 shadow-lg transition-shadow duration-300 ${
+                expandedCard === 0 ? "shadow-2xl" : ""
+              } ${enter}`}
             >
-              <span className="text-[11px] font-medium uppercase tracking-wide text-muted">
-                Style vocabulary
-              </span>
-              <div className="mt-4 flex flex-wrap gap-2">
+              <div className="flex items-start justify-between">
+                <span className="text-[11px] uppercase leading-tight text-muted">
+                  Style
+                </span>
+                <button
+                  type="button"
+                  onClick={copyVocabulary}
+                  aria-label={copiedVocab ? "Copied" : "Copy vocabulary"}
+                  title={copiedVocab ? "Copied" : "Copy vocabulary"}
+                  className="flex h-6 w-6 items-center justify-center rounded-full text-muted transition-colors hover:text-foreground"
+                >
+                  <CornerArrowIcon
+                    className={`h-4 w-4 transition-colors ${
+                      copiedVocab ? "text-accent" : ""
+                    }`}
+                  />
+                </button>
+              </div>
+              <p className="mt-4 flex flex-wrap items-baseline gap-x-1.5 gap-y-2 text-2xl font-semibold tracking-tight leading-snug text-foreground sm:text-3xl">
                 {result.inferred.styleVocabulary.map((word) => (
-                  <span
-                    key={word}
-                    className="rounded-full border border-border bg-background px-3 py-1.5 text-sm text-foreground"
-                  >
-                    {word}
+                  <span key={word} className="inline-flex items-center gap-1">
+                    <span>{word}</span>
+                    <button
+                      type="button"
+                      onClick={() => removeStyleWord(word)}
+                      aria-label={`Remove "${word}"`}
+                      className="inline-flex h-4 w-4 items-center justify-center rounded-full text-muted opacity-40 transition-opacity hover:opacity-100 hover:text-foreground"
+                    >
+                      <svg
+                        viewBox="0 0 12 12"
+                        className="h-2.5 w-2.5"
+                        fill="none"
+                      >
+                        <path
+                          d="M1.5 1.5L10.5 10.5M10.5 1.5L1.5 10.5"
+                          stroke="currentColor"
+                          strokeWidth="1.5"
+                          strokeLinecap="round"
+                        />
+                      </svg>
+                    </button>
                   </span>
                 ))}
-              </div>
+              </p>
             </div>
 
             <div
-              className={`relative rounded-3xl border border-border bg-[#1c1815] p-6 pt-14 shadow-sm delay-200 dark:bg-black/40 ${enter}`}
+              ref={(el) => {
+                cardRefs.current[1] = el;
+              }}
+              role="button"
+              tabIndex={0}
+              onClick={() =>
+                setExpandedCard((prev) => (prev === 1 ? null : 1))
+              }
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  setExpandedCard((prev) => (prev === 1 ? null : 1));
+                }
+              }}
+              style={{
+                marginTop: expandedCard === 0 ? EXPANDED_GAP : cardOverlaps[0],
+                transition: "margin-top 300ms ease-out",
+              }}
+              className={`relative z-20 cursor-pointer overflow-hidden rounded-3xl border border-border shadow-lg transition-shadow duration-300 delay-100 ${
+                expandedCard === 1 ? "shadow-2xl" : ""
+              } ${enter}`}
+            >
+              <span className="absolute left-4 top-4 z-10 rounded-full bg-background/70 px-2 py-1 text-[11px] uppercase leading-tight text-foreground backdrop-blur">
+                Colours
+              </span>
+              <PaletteTreemap palette={result.deterministic.palette} />
+            </div>
+
+            <div
+              ref={(el) => {
+                cardRefs.current[2] = el;
+              }}
+              role="button"
+              tabIndex={0}
+              onClick={() =>
+                setExpandedCard((prev) => (prev === 2 ? null : 2))
+              }
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  setExpandedCard((prev) => (prev === 2 ? null : 2));
+                }
+              }}
+              style={{
+                marginTop: expandedCard === 1 ? EXPANDED_GAP : cardOverlaps[1],
+                transition: "margin-top 300ms ease-out",
+              }}
+              className={`relative z-30 cursor-pointer rounded-3xl border border-border bg-[#1c1815] p-6 pt-14 shadow-lg transition-shadow duration-300 delay-200 dark:bg-black/40 ${
+                expandedCard === 2 ? "shadow-2xl" : ""
+              } ${enter}`}
             >
               <span className="absolute left-6 top-6 text-[11px] font-medium uppercase tracking-wide text-white/50">
                 Markdown
               </span>
-              <button
-                onClick={copyMarkdown}
-                className="absolute right-6 top-5 rounded-full bg-accent px-3 py-1 text-xs font-medium text-accent-foreground hover:opacity-90"
-              >
-                {copied ? "Copied" : "Copy markdown"}
-              </button>
-              <pre className="max-h-96 overflow-auto text-xs text-white/90">
+              <div className="absolute right-6 top-5 flex items-center gap-2">
+                <CornerArrowIcon className="h-4 w-4 text-white/50" />
+                <button
+                  onClick={copyMarkdown}
+                  className="rounded-full bg-accent px-3 py-1 text-xs font-medium text-accent-foreground hover:opacity-90"
+                >
+                  {copied ? "Copied" : "Copy markdown"}
+                </button>
+              </div>
+              <pre className="max-h-96 overflow-y-auto whitespace-pre-wrap break-words text-xs text-white/90">
                 {markdown}
               </pre>
             </div>
           </section>
         )}
       </main>
+
+      {showFloatingChooseButton && (
+        <div className="fixed inset-x-0 bottom-6 z-50 flex justify-center px-6">
+          <label
+            className={`cursor-pointer rounded-full border border-border bg-card/95 px-5 py-2.5 text-sm font-medium text-foreground shadow-lg backdrop-blur transition-colors hover:bg-background ${enter}`}
+          >
+            Choose a different image
+            <input
+              type="file"
+              accept="image/png,image/jpeg,image/gif,image/webp"
+              onChange={onInputChange}
+              className="hidden"
+            />
+          </label>
+        </div>
+      )}
 
       {status === "confirm" && (
         <div className="fixed inset-x-0 bottom-0 z-50 mx-auto flex w-full max-w-2xl items-center justify-center gap-6 bg-background/95 px-6 pb-8 pt-4 backdrop-blur">

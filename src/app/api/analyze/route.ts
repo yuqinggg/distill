@@ -2,7 +2,13 @@ import { NextResponse } from "next/server";
 import { extractColors } from "@/lib/color-extraction";
 import { analyzeStyle } from "@/lib/vision-analysis";
 import { toMarkdown } from "@/lib/markdown-export";
+import { MOCK_INFERRED } from "@/lib/mock-inferred";
 import type { ExtractionResult } from "@/lib/types";
+
+// Skips the paid vision-model call (analyzeStyle) and returns canned data for
+// it instead, so the upload -> confirm -> result UI can be exercised for
+// free. Color extraction still runs for real since it's local/deterministic.
+const MOCK_ANALYSIS = process.env.MOCK_ANALYSIS === "true";
 
 export const runtime = "nodejs";
 
@@ -40,7 +46,9 @@ export async function POST(request: Request) {
 
   try {
     const deterministic = await extractColors(buffer);
-    const inferred = await analyzeStyle(buffer, mediaType, deterministic);
+    const inferred = MOCK_ANALYSIS
+      ? MOCK_INFERRED
+      : await analyzeStyle(buffer, mediaType, deterministic);
 
     const result: ExtractionResult = { deterministic, inferred };
     const markdown = toMarkdown(result);
