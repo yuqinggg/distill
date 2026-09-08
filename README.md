@@ -1,8 +1,24 @@
+<p align="center">
+  <img src="public/readme-banner.png" alt="Distill — turn any image into design vocabulary" width="100%">
+</p>
+
 # Distill
 
-Upload an image, get back design vocabulary: a measured color palette,
+Upload an image, get back design vocabulary: a measured colour palette,
 inferred typography/spacing/grid, descriptive style vocabulary, and an
 implementation brief — all as one paste-ready markdown file.
+
+## Walkthrough
+
+<p align="center">
+  <img src="public/screens.jpg" alt="Distill on mobile: hero screen, image source picker, capture confirmation, analysis, and the results screen with style, colour, and markdown cards" width="100%">
+</p>
+
+Pick an image (camera or camera roll), confirm the shot, and Distill reads
+colours, typography, and layout off it. The results screen stacks three
+cards you can tap open: **style** vocabulary, a **colour** treemap sized by
+how much of the image each token covers, and the **markdown** export, ready
+to copy.
 
 ## v1 scope
 
